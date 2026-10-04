@@ -15,7 +15,7 @@ export interface InstallmentSeriesFormInput {
   categoryId: string | null
   payeeId: string | null
   description: string
-  amount: number
+  amount: string
   date: string
   type: 'debit' | 'credit'
   currency?: string
@@ -78,7 +78,7 @@ export function buildInstallmentSeriesInput(
       category_id: input.categoryId || null,
       payee_id: input.payeeId || null,
       description: input.description,
-      amount: input.amount,
+      amount: parseFloat(input.amount),
       date: input.date,
       type: input.type,
       ...(input.currency ? { currency: input.currency } : {}),

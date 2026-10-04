@@ -834,13 +834,13 @@ function TransactionForm({
         const recurringData = isCreating && isRecurring
           ? { frequency, end_date: endDate || undefined }
           : undefined
-        const installmentData = isCreating && isInstallment && !isSynced && parsedAmount != null
+        const installmentData = isCreating && isInstallment && !isSynced
           ? buildInstallmentSeriesInput({
               accountId,
               categoryId,
               payeeId,
               description,
-              amount: parsedAmount,
+              amount,
               date,
               type,
               currency,
