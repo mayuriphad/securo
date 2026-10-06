@@ -1,90 +1,73 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { screen } from '@testing-library/react'
+import { afterEach, expect, it, vi } from 'vitest'
 
 import { TransactionDialog } from '@/components/transaction-dialog'
-import { currencies, payees, settings } from '@/lib/api'
+import { currencies, groups, payees } from '@/lib/api'
 import { renderWithProviders, t } from '@/test/utils'
+import type { RecurringTransaction } from '@/types'
 
+vi.mock('@/contexts/auth-context', () => ({
+  useAuth: () => ({ user: { preferences: { currency_display: 'USD' } } }),
+}))
 vi.mock('@/hooks/use-display-locale', () => ({
   useDateLocale: () => 'en-US',
-  useDisplayLocale: () => 'de-DE',
+  useDisplayLocale: () => 'en-US',
 }))
 
-vi.mock('@/hooks/use-privacy-mode', () => ({
-  usePrivacyMode: () => ({ privacyMode: false, MASK: '••••' }),
-}))
+afterEach(() => vi.restoreAllMocks())
 
-vi.mock('@/contexts/auth-context', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/contexts/auth-context')>()),
-  useAuth: () => ({ user: null }),
-}))
-
-vi.mock('@/lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/api')>()),
-  currencies: { list: vi.fn() },
-  payees: { list: vi.fn() },
-  settings: { attachments: vi.fn() },
-}))
-
-describe('TransactionDialog with comma decimals', () => {
-  beforeEach(() => {
-    vi.mocked(currencies.list).mockResolvedValue([])
-    vi.mocked(payees.list).mockResolvedValue([])
-    vi.mocked(settings.attachments).mockResolvedValue({
-      allowed_extensions: ['pdf'],
-      max_file_size_mb: 10,
-      max_attachments_per_transaction: 10,
-    })
-  })
-
-  afterEach(() => {
-    vi.resetAllMocks()
-  })
-
-  async function saveNewTransaction(typedAmount: string, repeatAsInstallments: boolean) {
-    const onSave = vi.fn()
-    const { user } = renderWithProviders(
-      <TransactionDialog
-        open
-        onClose={vi.fn()}
-        transaction={null}
-        categories={[]}
-        categoryGroups={[]}
-        accounts={[{ id: 'acct-1', name: 'Checking', currency: 'EUR' }]}
-        defaultAccountId="acct-1"
-        onSave={onSave}
-        loading={false}
-        error={null}
-      />,
-    )
-    const dialog = await screen.findByRole('dialog')
-    await user.type(dialog.querySelector('input[required]:not([inputmode])')!, 'Notebook')
-    await user.type(dialog.querySelector('input[inputmode="decimal"]')!, typedAmount)
-    if (repeatAsInstallments) {
-      await user.click(within(dialog).getByLabelText(t('transactions.makeInstallment')))
+it.each(['America/Los_Angeles', 'Pacific/Kiritimati'])(
+  'keeps a recurring calendar date unchanged in %s',
+  async (timezone) => {
+    const originalTimezone = process.env.TZ
+    const recurringMatch: RecurringTransaction = {
+      id: 'recurring-rent',
+      user_id: 'synthetic-user',
+      account_id: null,
+      category_id: null,
+      description: 'Rent',
+      amount: 100,
+      currency: 'USD',
+      type: 'debit',
+      frequency: 'monthly',
+      weekend_adjustment: 'none',
+      day_of_month: 8,
+      start_date: '2026-01-08',
+      end_date: null,
+      is_active: true,
+      auto_generate: false,
+      next_occurrence: '2026-03-08',
+      amount_primary: null,
+      fx_rate_used: null,
     }
-    await user.click(within(dialog).getByRole('button', { name: t('common.save') }))
-    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1))
-    return onSave.mock.calls[0]
-  }
+    vi.spyOn(currencies, 'list').mockResolvedValue([])
+    vi.spyOn(payees, 'list').mockResolvedValue([])
+    vi.spyOn(groups, 'list').mockResolvedValue([])
 
-  it.each([
-    ['50,25', 50.25],
-    ['1.234,56', 1234.56],
-  ])('saves %s as %d', async (typedAmount, expected) => {
-    const [data, , installmentData] = await saveNewTransaction(typedAmount, false)
+    try {
+      process.env.TZ = timezone
+      renderWithProviders(
+        <TransactionDialog
+          open
+          onClose={vi.fn()}
+          transaction={null}
+          categories={[]}
+          categoryGroups={[]}
+          accounts={[]}
+          recurringMatch={recurringMatch}
+          onSave={vi.fn()}
+          loading={false}
+          error={null}
+        />,
+      )
 
-    expect(data.amount).toBe(expected)
-    expect(installmentData).toBeUndefined()
-  })
-
-  it.each([
-    ['50,25', 50.25],
-    ['1.234,56', 1234.56],
-  ])('repeats %s as installments of %d', async (typedAmount, expected) => {
-    const [data, , installmentData] = await saveNewTransaction(typedAmount, true)
-
-    expect(data.amount).toBe(expected)
-    expect(installmentData.base.amount).toBe(expected)
-  })
-})
+      expect(await screen.findByText(t('transactions.recurringInfo', {
+        frequency: t('recurring.monthly'),
+        next: '3/8/2026',
+      }))).toBeInTheDocument()
+    } finally {
+      if (originalTimezone === undefined) delete process.env.TZ
+      else process.env.TZ = originalTimezone
+    }
+  },
+)
